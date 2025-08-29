@@ -16,14 +16,14 @@ ffmpeg-python
 pydub
 imageio-ffmpeg==0.4.9
 
-transformers==4.41.2
-tokenizers==0.19.1
+transformers==4.39.3
+tokenizers==0.15.2
 sentence-transformers==3.0.1
 huggingface-hub==0.24.5
 pydantic==1.10.15
 accelerate==0.31.0
 
-+faiss-cpu==1.7.4
+faiss-cpu==1.7.4
 
 faster-whisper==1.0.1
 ctranslate2==4.5.0
