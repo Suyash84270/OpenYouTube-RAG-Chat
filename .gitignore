@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+
+# Streamlit
+.streamlit/
+**/.cache/
+
+# Data / artifacts
+data/
+cache/
+*.mp3
+*.wav
+*.webm
+index.faiss
+index_mapping.json
+
+# OS junk
+.DS_Store
+Thumbs.db

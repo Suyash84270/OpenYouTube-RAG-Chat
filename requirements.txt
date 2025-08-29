@@ -1,0 +1,22 @@
+# Core app
+streamlit
+yt-dlp
+faster-whisper==1.0.1
+ffmpeg-python
+pydub
+
+# Embeddings + Vector Search
+sentence-transformers==3.0.1
+faiss-cpu
+chromadb==0.5.5
+
+# Utils
+tqdm
+python-dotenv
+pydantic>=1.10,<3
+huggingface-hub>=0.23.0
+httpx
+
+# LLMs
+transformers>=4.39.0
+torch>=2.0.0
