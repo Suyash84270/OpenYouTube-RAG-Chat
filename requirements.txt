@@ -1,20 +1,21 @@
-# Force CPU wheels & never build from source (avoids tokenizers/faiss/torch compile)
 --extra-index-url https://download.pytorch.org/whl/cpu
 --only-binary=:all:
 
-# Core
+pip>=24.0
+setuptools<75
+wheel
+
 streamlit==1.49.0
 python-dotenv
 tqdm
 httpx
 numpy==1.26.4
 
-# Audio / video
 yt-dlp
 ffmpeg-python
 pydub
+imageio-ffmpeg==0.4.9
 
-# Transformers stack (prebuilt wheel versions)
 transformers==4.41.2
 tokenizers==0.19.1
 sentence-transformers==3.0.1
@@ -22,12 +23,9 @@ huggingface-hub==0.24.5
 pydantic==1.10.15
 accelerate==0.31.0
 
-# Vector search
 faiss-cpu==1.7.3
 
-# Whisper + engine
 faster-whisper==1.0.1
 ctranslate2==4.5.0
 
-# PyTorch (CPU wheel)
 torch==2.0.1
