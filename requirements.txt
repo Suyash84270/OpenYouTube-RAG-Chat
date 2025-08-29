@@ -1,15 +1,18 @@
+# Core
 streamlit==1.49.0
-yt-dlp
-ffmpeg-python
-pydub
 python-dotenv
 tqdm
 httpx
 
-# Avoid NumPy 2.x breaking wheels
+# Audio + Video
+yt-dlp
+ffmpeg-python
+pydub
+
+# Numeric stability (avoid NumPy 2.x issues)
 numpy<2
 
-# Transformers stack (CPU-friendly)
+# Transformers stack
 transformers==4.41.2
 tokenizers==0.19.1
 sentence-transformers==3.0.1
@@ -17,12 +20,12 @@ huggingface-hub==0.24.5
 pydantic>=1.10,<3
 accelerate==0.31.0
 
-# Vector search (prebuilt wheel)
+# Vector DB
 faiss-cpu==1.7.4
 
-# Whisper (CPU)
+# Whisper + translation
 faster-whisper==1.0.1
 ctranslate2==4.5.0
 
-# PyTorch CPU wheel (if this fails, try 2.1.2)
-torch==2.2.2
+# Torch (CPU wheel that works on Cloud)
+torch==2.1.2
