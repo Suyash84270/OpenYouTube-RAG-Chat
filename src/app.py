@@ -3,6 +3,7 @@ import os
 import re
 import json
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -22,8 +23,10 @@ DATA_DIR = Path("./data")
 EMBEDDINGS_MODEL = "all-MiniLM-L6-v2"
 LLM_MODEL = "google/flan-t5-base"   # lightweight, CPU-friendly
 ASR_MODEL_SIZE = "small"            # faster-whisper size: tiny/base/small/medium/large
-TOP_K = 5                            # retrieved chunks
-CPU_THREADS = 1                      # keep low for shared runners
+TOP_K = 5                           # retrieved chunks
+CPU_THREADS = 1                     # keep low for shared runners
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="huggingface_hub.file_download")
 # ----------------------------------------
 
 
@@ -32,8 +35,9 @@ FFMPEG_PATH = None
 try:
     import imageio_ffmpeg
     FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-    # This env var is respected by ffmpeg-python, pydub, and generally by tools that search for ffmpeg
+    # env vars recognized by various libs
     os.environ["IMAGEIO_FFMPEG_EXE"] = FFMPEG_PATH
+    os.environ["FFMPEG_BINARY"] = FFMPEG_PATH
 except Exception:
     FFMPEG_PATH = None
 
@@ -47,12 +51,10 @@ def get_embedder() -> SentenceTransformer:
 
 @st.cache_resource(show_spinner=False)
 def get_llm():
-    # Text2Text pipeline (T5-like). Keep defaults small for CPU.
     return pipeline("text2text-generation", model=LLM_MODEL)
 
 @st.cache_resource(show_spinner=False)
 def get_whisper(asr_model: str = ASR_MODEL_SIZE) -> WhisperModel:
-    # CPU-friendly, int8, single thread
     return WhisperModel(asr_model, device="cpu", compute_type="int8", cpu_threads=CPU_THREADS)
 
 
@@ -71,7 +73,6 @@ def extract_video_id(url: str, info: Optional[dict] = None) -> str:
     m = YTDLP_ID_PAT.search(url)
     if m:
         return m.group(1)
-    # fallback to a hash if we truly cannot parse (rare)
     return str(abs(hash(url)))
 
 def video_artifact_dir(video_id: str) -> Path:
@@ -102,23 +103,53 @@ def safe_read_json(p: Path) -> dict:
 
 
 # ---------------- CORE OPS ----------------
-def download_audio(youtube_url: str, out_dir: Path) -> Tuple[Path, dict, str]:
+def download_audio(
+    youtube_url: str,
+    out_dir: Path,
+    cookies_path: Optional[str] = None
+) -> Tuple[Path, dict, str]:
     """
     Download best audio and extract to MP3 using yt-dlp + ffmpeg.
-    We explicitly point yt-dlp to the bundled ffmpeg binary if available.
+    Hardened to avoid common 403 issues:
+      - set real browser headers
+      - use Android/WebRemix clients
+      - allow optional cookies for age-/region-restricted videos
     """
     ydl_opts = {
         "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
         "quiet": True,
         "noplaylist": True,
+        "restrictfilenames": True,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
         ],
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/123.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "webremix"],
+            }
+        },
+        "geo_bypass": True,
+        "concurrent_fragment_downloads": 1,
+        "retries": 3,
+        "fragment_retries": 3,
+        "nocheckcertificate": True,
     }
+
+    # Use the full ffmpeg path for yt-dlp (fixes "ffmpeg not found")
     if FFMPEG_PATH:
-        # yt-dlp uses the directory for ffmpeg_location
-        ydl_opts["ffmpeg_location"] = os.path.dirname(FFMPEG_PATH)
+        ydl_opts["ffmpeg_location"] = FFMPEG_PATH
+
+    if cookies_path:
+        ydl_opts["cookiefile"] = cookies_path
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(youtube_url, download=True)
@@ -155,19 +186,15 @@ def build_or_load_index(video_id: str, segments: Optional[List[dict]] = None):
     mp = mapping_path(video_id)
     ep = emb_path(video_id)
 
-    # Prefer loading existing index + mapping if present
     if ip.exists() and mp.exists() and ep.exists():
         try:
             idx = faiss.read_index(str(ip))
             mapping = safe_read_json(mp)
-            # NOTE: We don't need to load embeddings to search with FAISS,
-            # but we keep them saved to allow potential future dimensionality checks.
             return idx, mapping
         except Exception:
             pass  # fall back to rebuild
 
     if segments is None:
-        # No text to embed
         return None, []
 
     mapping = [s["text"] for s in segments if s["text"].strip()]
@@ -179,7 +206,6 @@ def build_or_load_index(video_id: str, segments: Optional[List[dict]] = None):
     index = faiss.IndexFlatL2(dim)
     index.add(emb.astype(np.float32))
 
-    # persist
     faiss.write_index(index, str(ip))
     safe_write_json(mp, mapping)
     np.save(str(ep), emb.astype(np.float32))
@@ -256,13 +282,11 @@ def answer_with_context(query: str, context: List[str]) -> str:
         f"Question: {query}\nAnswer:"
     )
     out = llm(prompt, max_new_tokens=256)
-    # huggingface pipeline returns a list of dicts; flan-t5 uses 'generated_text'
     if isinstance(out, list) and len(out):
         item = out[0]
         if isinstance(item, dict):
             if "generated_text" in item:
                 return item["generated_text"]
-            # fallback to any text-like field
             for v in item.values():
                 if isinstance(v, str) and v.strip():
                     return v
@@ -284,6 +308,14 @@ with st.expander("ℹ️ Environment checks", expanded=False):
 
 youtube_url = st.text_input("📺 Paste YouTube URL here:", placeholder="https://www.youtube.com/watch?v=...")
 
+# Optional cookies.txt upload (helps with age/region/consent restrictions)
+cookie_file = st.file_uploader("Optional: upload cookies.txt (exported from your browser)", type=["txt"])
+cookies_path = None
+if cookie_file is not None:
+    tmp_cookie_path = DATA_DIR / "cookies.txt"
+    tmp_cookie_path.write_bytes(cookie_file.getvalue())
+    cookies_path = str(tmp_cookie_path)
+
 col_a, col_b = st.columns([1, 1])
 process_clicked = col_a.button("🚀 Process Video", use_container_width=True)
 clear_clicked = col_b.button("🧹 Clear State", use_container_width=True)
@@ -296,9 +328,8 @@ if clear_clicked:
 if youtube_url and process_clicked:
     try:
         with st.spinner("Downloading audio..."):
-            audio_path, info, video_id = download_audio(youtube_url, DATA_DIR)
+            audio_path, info, video_id = download_audio(youtube_url, DATA_DIR, cookies_path=cookies_path)
 
-        # Attempt to reuse prior transcript if exists
         full_text, segments, meta = load_transcript_if_exists(video_id)
         if not segments:
             with st.spinner("Transcribing audio (Whisper)…"):
@@ -307,7 +338,6 @@ if youtube_url and process_clicked:
         else:
             asr_info = meta.get("asr", {})
 
-        # Try to load FAISS; otherwise build it
         idx, mapping = load_index_if_exists(video_id)
         if idx is None or not mapping:
             with st.spinner("Building FAISS index…"):
