@@ -1,22 +1,28 @@
-# --- Streamlit app ---
 streamlit==1.49.0
 yt-dlp
 ffmpeg-python
 pydub
 python-dotenv
 tqdm
+httpx
 
-# --- ML core (CPU only) ---
-torch==2.2.2          # stable CPU wheel on Linux
-transformers==4.41.2  # works with Flan-T5
+# Avoid NumPy 2.x breaking wheels
+numpy<2
+
+# Transformers stack (CPU-friendly)
+transformers==4.41.2
+tokenizers==0.19.1
 sentence-transformers==3.0.1
-faiss-cpu==1.7.4
 huggingface-hub==0.24.5
 pydantic>=1.10,<3
+accelerate==0.31.0
 
-# --- ASR (Whisper via faster-whisper) ---
+# Vector search (prebuilt wheel)
+faiss-cpu==1.7.4
+
+# Whisper (CPU)
 faster-whisper==1.0.1
 ctranslate2==4.5.0
 
-# --- Optional utilities you had (safe to keep) ---
-httpx
+# PyTorch CPU wheel (if this fails, try 2.1.2)
+torch==2.2.2
